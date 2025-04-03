@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using PdfProcessorApi.Data;
+using PdfProcessorApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
 );
+
+builder.Services.AddScoped<IPdfTextExtractorService, PdfTextExtractorService>();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();

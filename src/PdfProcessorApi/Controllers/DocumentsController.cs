@@ -3,16 +3,30 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PdfProcessorApi.Data;
 using PdfProcessorApi.Models;
+using PdfProcessorApi.Services;
 
 namespace PdfProcessorApi.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public class DocumentsController(ApplicationDbContext context, ILogger<DocumentsController> logger, IConfiguration configuration) : ControllerBase
+public class DocumentsController : ControllerBase
 {
-    private readonly ApplicationDbContext _context = context;
-    private readonly ILogger<DocumentsController> _logger = logger;
-    private readonly IConfiguration _configuration = configuration;
+    private readonly ApplicationDbContext _context;
+    private readonly ILogger<DocumentsController> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly IPdfTextExtractorService _pdfTextExtractor;
+
+    public DocumentsController(
+        ApplicationDbContext context, 
+        ILogger<DocumentsController> logger, 
+        IConfiguration configuration, 
+        IPdfTextExtractorService pdfTextExtractor)
+    {
+        _context = context;
+        _logger = logger;
+        _configuration = configuration;
+        _pdfTextExtractor = pdfTextExtractor;
+    }
 
 
     [HttpPost]
@@ -80,6 +94,28 @@ public class DocumentsController(ApplicationDbContext context, ILogger<Documents
             return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred. Please try again later.");
         }
 
+        string? extractedText = null;
+        _logger.LogInformation("Extracting text from PDF file: {FileName}", file.FileName);
+        try
+        {
+            extractedText = await _pdfTextExtractor.ExtractTextAsync(destinationFilePath);
+            if (extractedText != null)
+            {
+                _logger.LogInformation("Successfully extracted text from file: {FileName}. Length: {Length}. Preview: '{Preview}...' (max 200 characters)",
+                    file.FileName,
+                    extractedText.Length,
+                    extractedText.Substring(0, Math.Min(extractedText.Length, 200)).Replace("\n", " ").Replace("\r", " ")
+                );
+            }
+            else
+            {
+                _logger.LogWarning("Text extraction returned null for file: {FileName}", file.FileName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Text extraction failed for file: {FileName}", file.FileName);
+        }
 
         var newDocument = new DocumentMetadata()
         {
