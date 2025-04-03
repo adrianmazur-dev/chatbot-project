@@ -1,6 +1,3 @@
 @PdfProcessorApi_HostAddress = http://localhost:5251
 
-GET {{PdfProcessorApi_HostAddress}}/weatherforecast/
-Accept: application/json
-
 ###
