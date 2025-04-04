@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using UglyToad.PdfPig;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace PdfProcessorApi.Services;
 
@@ -31,7 +32,13 @@ public class PdfTextExtractorService(ILogger<PdfTextExtractorService> logger) : 
                     for (int i = 1; i <= pageCount; i++)
                     {
                         var page = document.GetPage(i);
-                        documentTextBuilder.Append(page.Text);
+                        
+                        var words = page.GetWords(NearestNeighbourWordExtractor.Instance);
+                        foreach (var word in words)
+                        {
+                            documentTextBuilder.Append(word.Text);
+                            documentTextBuilder.Append(' ');
+                        }
                         documentTextBuilder.AppendLine();
                     }
                 }

@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using Elastic.Clients.Elasticsearch;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PdfProcessorApi.Data;
@@ -15,17 +16,23 @@ public class DocumentsController : ControllerBase
     private readonly ILogger<DocumentsController> _logger;
     private readonly IConfiguration _configuration;
     private readonly IPdfTextExtractorService _pdfTextExtractor;
+    private readonly IElasticsearchIndexingService _indexingService;
+    private readonly ElasticsearchClient _elasticClient;
 
     public DocumentsController(
         ApplicationDbContext context, 
         ILogger<DocumentsController> logger, 
         IConfiguration configuration, 
-        IPdfTextExtractorService pdfTextExtractor)
+        IPdfTextExtractorService pdfTextExtractor,
+        IElasticsearchIndexingService indexingService,
+        ElasticsearchClient elasticClient)
     {
         _context = context;
         _logger = logger;
         _configuration = configuration;
         _pdfTextExtractor = pdfTextExtractor;
+        _indexingService = indexingService;
+        _elasticClient = elasticClient;
     }
 
 
@@ -130,6 +137,40 @@ public class DocumentsController : ControllerBase
 
             _logger.LogInformation("Successfully registered new document metadata. ID: {DocumentId}, FileName: {FileName}", newDocument.Id, newDocument.OriginalFileName);
 
+            if (extractedText != null)
+            {
+                _logger.LogInformation("Indexing document in Elasticsearch. ID: {DocumentId}", newDocument.Id);
+
+                var elasticDoc = new ElasticDocument
+                {
+                    Id = newDocument.Id,
+                    OriginalFileName = newDocument.OriginalFileName,
+                    UploadedAt = newDocument.UploadedAt,
+                    ExtractedText = extractedText,
+                };
+
+                try
+                {
+                    bool indexingSuccess = await _indexingService.IndexDocumentAsync(elasticDoc);
+                    if (indexingSuccess)
+                    {
+                        _logger.LogInformation("Document indexed successfully in Elasticsearch. ID: {DocumentId}", newDocument.Id);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Indexing in Elasticsearch encountered an issue for document ID: {DocumentId}", elasticDoc.Id);
+                    }
+                }
+                catch (Exception indexEx)
+                {
+                    _logger.LogError(indexEx, "Exception occurred while indexing document in Elasticsearch. ID: {DocumentId}", newDocument.Id);
+                }
+            }
+            else
+            {
+                _logger.LogWarning("No text extracted for document ID: {DocumentId}. Skipping indexing.", newDocument.Id);
+            }
+
             return CreatedAtAction(nameof(GetDocumentMetadataById), new { id = newDocument.Id }, newDocument);
         }
         catch (DbUpdateException ex)
@@ -212,6 +253,50 @@ public class DocumentsController : ControllerBase
         return Ok(document);
     }
 
+    [HttpGet("search")]
+    public async Task<ActionResult<IEnumerable<ElasticDocument>>> SearchDocuments([FromQuery] string term)
+    {
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return BadRequest("Search term cannot be empty.");
+        }
+
+        _logger.LogInformation("Searching documents in Elasticsearch with term: {SearchTerm}", term);
+
+        try
+        {
+            var searchResponse = await _elasticClient.SearchAsync<ElasticDocument>(s => s
+                .Query(q => q
+                    .Match(m => m
+                        .Field(f => f.ExtractedText)
+                        .Query(term)
+                    )
+                )
+                .Size(20)
+            );
+
+            if (searchResponse.IsValidResponse)
+            {
+                _logger.LogInformation("Elasticsearch search completed successfully. Found {TotalHits} documents for term: '{SearchTerm}'", searchResponse.Total, term);
+                return Ok(searchResponse.Documents);
+            }
+            else
+            {
+                _logger.LogWarning("Elasticsearch search failed for term: '{SearchTerm}'. DebugInfo: {DebugInfo}", term, searchResponse.DebugInformation);
+                if (searchResponse.ElasticsearchServerError != null)
+                {
+                    _logger.LogError("Elasticsearch server error: {ErrorType} - {ErrorReason}",
+                        searchResponse.ElasticsearchServerError.Error?.Type, searchResponse.ElasticsearchServerError.Error?.Reason);
+                }
+                return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while searching.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Exception occurred while searching in Elasticsearch for term: '{SearchTerm}'", term);
+            return StatusCode(StatusCodes.Status500InternalServerError, "An unexpected error occurred while searching.");
+        }
+    }
 
     public class DocumentMetadataInputModel
     {
