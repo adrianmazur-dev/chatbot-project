@@ -1,12 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>b61b20f1-6510-4c70-a0e6-321ffd5802be</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageReference Include="Elastic.Clients.Elasticsearch" Version="8.17.3" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.3" />
